@@ -1,0 +1,235 @@
+services:
+
+  # MQTT broker (Edge -> Ingestion)
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+  # Message bus (Ingestion -> ETL)
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: platform
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+    restart: unless-stopped
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Time-series storage (Cold path)
+  influxdb:
+    image: influxdb:2
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: adminpass123
+      DOCKER_INFLUXDB_INIT_ORG: platform
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN}
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+  # Hot buffer for LLM (Hot path)
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+  # Metadata & event log DB
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ingestion: MQTT -> RabbitMQ bridge
+  ingestion:
+    build:
+      context: ./ingestion
+      dockerfile: Dockerfile
+    container_name: ingestion_service
+    environment:
+      MQTT_HOST:   mosquitto
+      MQTT_PORT:   1883
+      MQTT_TOPIC:  "telemetry/#"
+      RABBIT_HOST: rabbitmq
+      RABBIT_PORT: 5672
+      RABBIT_USER: platform
+      RABBIT_PASS: ${RABBITMQ_PASSWORD}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+  # ETL Pipeline (RabbitMQ consumer)
+  etl:
+    build:
+      context: ./etl
+      dockerfile: Dockerfile
+    container_name: etl_pipeline
+    environment:
+      RABBIT_HOST:  rabbitmq
+      RABBIT_PORT:  5672
+      RABBIT_USER:  platform
+      RABBIT_PASS: ${RABBITMQ_PASSWORD}
+      RABBIT_QUEUE: telemetry.raw
+      RABBIT_PREFETCH: 1
+      INFLUX_URL:    http://influxdb:8086
+      INFLUX_TOKEN:  ${INFLUXDB_TOKEN}
+      INFLUX_ORG:    platform
+      INFLUX_BUCKET: telemetry
+      REDIS_HOST:    redis
+      REDIS_PORT:    6379
+      REDIS_WINDOW:  20
+      PG_DSN: "host=postgres port=5432 dbname=platform user=platform password=${POSTGRES_PASSWORD}"
+      ZSCORE_THRESHOLD: "3.5"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_started
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+  # Device simulator
+  simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    container_name: device_simulator
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      PUBLISH_INTERVAL_SEC: 5
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+  # LLM Service
+  llm_service:
+    build:
+      context: ./llm_service
+      dockerfile: Dockerfile
+    container_name: llm_service
+    environment:
+      GEMINI_API_KEY:      "${GEMINI_API_KEY}"
+      PG_DSN: "host=postgres port=5432 dbname=platform user=platform password=${POSTGRES_PASSWORD}"
+      REDIS_HOST:          redis
+      REDIS_PORT:          6379
+      MQTT_HOST:           mosquitto
+      MQTT_PORT:           1883
+      POLL_INTERVAL_SEC:   10
+      MIN_SEVERITY:        warning
+      BATCH_SIZE:          5
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mosquitto:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+  # REST API & Web Dashboard
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: api_service
+    ports:
+      - "8000:8000"
+    environment:
+      GEMINI_API_KEY:      "${GEMINI_API_KEY}"
+      PG_DSN:              "host=postgres port=5432 dbname=platform user=platform password=${POSTGRES_PASSWORD}"
+      REDIS_HOST:          redis
+      REDIS_PORT:          6379
+      INFLUX_URL:          http://influxdb:8086
+      INFLUX_TOKEN:        ${INFLUXDB_TOKEN}
+      INFLUX_ORG:          platform
+      INFLUX_BUCKET:       telemetry
+      AUTH0_DOMAIN:        "dev-3ok75o5jdoz4888w.us.auth0.com"
+      AUTH0_AUDIENCE:      "https://telemetry-platform/api"
+      AUTH0_CLIENT_ID:     "aXrpyCTiND5B16bL8UVNYU0uS9OiSqZT"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - platform_net
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  rabbitmq_data:
+  influxdb_data:
+  redis_data:
+  postgres_data:
+
+# Network
+networks:
+  platform_net:
+    driver: bridge

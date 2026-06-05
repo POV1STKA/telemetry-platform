@@ -1,0 +1,45 @@
+# ─── Файли конфігурацій та секретів (КРИТИЧНО ДЛЯ БЕЗПЕКИ) ───
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python кеші та віртуальні середовища
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+ENV/
+env/
+
+# Логи контейнерів та системні файли
+*.log
+docker-compose.override.yml
+
+# Папки середовища розробки IDE (VS Code, PyCharm тощо)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Системні файли ОС
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ─── Тестові папки та файли ───
+# Ігнорувати всі тестові директорії та файли
+**/tests/
+**/test_*.py
+**/*_test.py
+
+# Дозволити відстеження файлів у папці tests_empirical
+!**/tests_empirical/
+!**/tests_empirical/**
+

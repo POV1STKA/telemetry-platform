@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Telemetry Platform — Dashboard</title>
+  <meta name="description" content="IoT-платформа моніторингу та LLM-аналізу аномалій телеметрії" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.auth0.com/js/auth0-spa-js/2.0/auth0-spa-js.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div id="login-screen" class="login-screen hidden">
+  <div class="login-bg">
+    <div class="login-orb orb-1"></div>
+    <div class="login-orb orb-2"></div>
+    <div class="login-orb orb-3"></div>
+  </div>
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon">⚡</div>
+      <div class="logo-text">
+        <span class="logo-name">Telemetry Platform</span>
+        <span class="logo-sub">IoT Monitoring & LLM Analytics</span>
+      </div>
+    </div>
+    <div class="login-desc">
+      Платформа моніторингу телеметрії в реальному часі з інтелектуальним аналізом аномалій на базі великих мовних моделей.
+    </div>
+    <button id="btn-login" class="btn-login" onclick="login()">
+      <span class="btn-login-icon">🔐</span>
+      Увійти через Auth0
+    </button>
+    <div class="login-footer">Дипломна робота — Зелінський І.О.</div>
+  </div>
+</div>
+
+<div id="dashboard" class="hidden">
+
+  <header class="header">
+    <div class="header-left">
+      <div class="header-logo">⚡</div>
+      <div class="header-title">
+        <span class="header-name">Telemetry Platform</span>
+        <span class="header-sub">IoT Monitoring</span>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="status-pill" id="status-pill">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Перевірка...</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="header-stats">
+        <div class="hstat">
+          <span class="hstat-val" id="hstat-total">—</span>
+          <span class="hstat-lbl">Подій</span>
+        </div>
+        <div class="hstat">
+          <span class="hstat-val critical" id="hstat-critical">—</span>
+          <span class="hstat-lbl">Critical</span>
+        </div>
+        <div class="hstat">
+          <span class="hstat-val accent" id="hstat-llm">—</span>
+          <span class="hstat-lbl">LLM</span>
+        </div>
+      </div>
+      <div class="header-user" id="header-user">
+        <img id="user-avatar" class="user-avatar" src="" alt="" />
+        <span id="user-name" class="user-name"></span>
+      </div>
+      <button class="btn-logout" onclick="logout()">Вийти</button>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">Пристрої</h2>
+        <span class="section-badge" id="devices-online">—</span>
+      </div>
+      <div class="devices-grid" id="devices-grid">
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">Аномалії та події</h2>
+        <div class="events-controls">
+          <select id="filter-severity" class="filter-select" onchange="applyFilters()">
+            <option value="">Всі severity</option>
+            <option value="emergency">🔴 Emergency</option>
+            <option value="critical">🟠 Critical</option>
+            <option value="warning">🟡 Warning</option>
+            <option value="info">🔵 Info</option>
+          </select>
+          <label class="toggle-label">
+            <input type="checkbox" id="filter-llm" onchange="applyFilters()" />
+            <span>Тільки LLM</span>
+          </label>
+          <button class="btn-refresh" onclick="loadEvents()">↻ Оновити</button>
+        </div>
+      </div>
+
+      <div class="events-list" id="events-list">
+        <div class="loading-spinner">
+          <div class="spinner"></div>
+          <span>Завантаження...</span>
+        </div>
+      </div>
+
+      <div class="pagination" id="pagination"></div>
+    </section>
+
+    <section class="section chat-section" id="chat-section">
+      <div class="section-header">
+        <h2 class="section-title"><span class="chat-icon"></span> LLM-чат (діалог з системою)</h2>
+        <div class="chat-model-badge" id="chat-model-badge">gemini-2.5-flash</div>
+      </div>
+
+      <div class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-msg chat-msg--assistant">
+            <div class="chat-bubble">
+              Привіт! Я — інтелектуальний асистент системи моніторингу. Запитайте про стан пристроїв, аномалії або рекомендації.
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-footer">
+          <select id="chat-device-sel" class="chat-device-sel">
+            <option value="">Уся система</option>
+          </select>
+          <div class="chat-input-row">
+            <textarea
+              id="chat-input"
+              class="chat-input"
+              placeholder="Напишіть запитання... (Шифт+Enter — відправити)"
+              rows="2"
+              onkeydown="chatKeydown(event)"
+            ></textarea>
+            <button id="chat-send-btn" class="btn-chat-send" onclick="sendChat()" title="Відправити">
+              <span id="chat-send-icon">↑</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="refresh-bar" id="refresh-bar"></div>
+</div>
+
+<div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+<script src="chat.js"></script>
+</body>
+</html>
