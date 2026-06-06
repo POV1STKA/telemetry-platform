@@ -65,7 +65,7 @@ def _connect_redis():
 def _print_startup_info():
     log.info("LLM Service - Telemetry Anomaly Analyzer (Gemini Cloud)")
     log.info("Engine: Google Gemini REST API")
-    log.info("Model: gemini-1.5-flash")
+    log.info("Model: gemini-2.5-flash")
     log.info("Redis: %s:%s", config.REDIS_HOST, config.REDIS_PORT)
     log.info("MQTT: %s:%d", config.MQTT_HOST, config.MQTT_PORT)
     log.info("Interval: %ds", config.POLL_INTERVAL_SEC)

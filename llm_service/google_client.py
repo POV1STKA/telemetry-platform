@@ -9,17 +9,12 @@ log = logging.getLogger(__name__)
 class GeminiError(Exception):
     pass
 
-
-# Alias for backward compatibility
-OllamaError = GeminiError
-
-
 def generate(prompt: str, model: str | None = None) -> str:
     key = config.GEMINI_API_KEY
     if not key or key.startswith("YOUR_") or len(key) < 10:
         raise GeminiError("GEMINI_API_KEY is not configured or invalid.")
 
-    gemini_model = "gemini-1.5-flash"
+    gemini_model = "gemini-2.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={key}"
 
     payload = {

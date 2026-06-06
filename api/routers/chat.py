@@ -147,7 +147,7 @@ def chat(
     if not key or len(key) < 10:
         raise HTTPException(status_code=503, detail="Gemini Cloud API is not configured on this host.")
 
-    gemini_model = "gemini-1.5-flash"
+    gemini_model = "gemini-2.5-flash"
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent?key={key}"
 
     payload = {
